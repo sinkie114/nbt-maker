@@ -10,11 +10,15 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.UUID;
 import java.util.function.Consumer;
 
 /** No custom packets or remote edit channel. Every server access runs on the integrated server executor. */
 public final class EditSession {
+    /** Undo depth for whole-document snapshots; items are small, so this stays well under a few MiB. */
+    private static final int HISTORY_LIMIT = 100;
     public final Minecraft client;
     public final AbstractContainerScreen<?> source;
     public final AbstractContainerMenu clientMenu;
@@ -30,6 +34,7 @@ public final class EditSession {
     private AbstractContainerMenu serverMenu;
     private Slot serverSlot;
     private boolean captured, pollPending;
+    private final Deque<CompoundTag> undo = new ArrayDeque<>(), redo = new ArrayDeque<>();
     public boolean syncing, valid = true, changed;
     public CompoundTag document, baseline, observed;
     public ItemStack preview = ItemStack.EMPTY;
@@ -57,7 +62,22 @@ public final class EditSession {
 
     public void edit(CompoundTag next) {
         if (!editable || syncing) return;
+        if (!next.equals(document)) {
+            undo.push(document);
+            if (undo.size() > HISTORY_LIMIT) undo.removeLast();
+            redo.clear();
+        }
         document = next.copy(); revision++; status = ""; refresh();
+    }
+
+    public boolean canUndo() { return editable && !syncing && !undo.isEmpty(); }
+    public boolean canRedo() { return editable && !syncing && !redo.isEmpty(); }
+    /** Steps through local copy states only; nothing reaches the real item until the next sync. */
+    public void undo() { step(undo, redo, "已撤销"); }
+    public void redo() { step(redo, undo, "已重做"); }
+    private void step(Deque<CompoundTag> from, Deque<CompoundTag> to, String message) {
+        if (!editable || syncing || from.isEmpty()) return;
+        to.push(document); document = from.pop(); revision++; status = message; refresh();
     }
 
     private void refresh() {

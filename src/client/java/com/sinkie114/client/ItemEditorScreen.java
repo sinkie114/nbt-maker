@@ -220,10 +220,11 @@ public final class ItemEditorScreen extends Screen implements EditorLayer {
         SnbtScreen() { super(Component.literal("SNBT 导入与导出")); }
         @Override public EditSession session() { return session; }
         @Override protected void init() {
-            sw = Math.min(320, width - 16); sh = Math.min(214, height - 16); sx = (width - sw) / 2; sy = (height - sh) / 2;
-            String[] labels = {"复制副本", "复制原物品", "粘贴 SNBT", "导入文件", "导出文件", "返回"};
+            sw = Math.min(320, width - 16); sh = Math.min(240, height - 16); sx = (width - sw) / 2; sy = (height - sh) / 2;
+            String[] labels = {"复制副本", "复制原物品", "粘贴 SNBT", "导入文件", "导出文件", "收藏夹", "返回"};
             Runnable[] tasks = {() -> copy(currentRoot()), () -> copy(StackData.at(session.observed, rootPath)), ItemEditorScreen.this::paste,
-                    ItemEditorScreen.this::importFile, ItemEditorScreen.this::exportFile, () -> {}};
+                    ItemEditorScreen.this::importFile, ItemEditorScreen.this::exportFile,
+                    () -> minecraft.setScreen(new LibraryScreen(ItemEditorScreen.this, session, rootPath)), () -> {}};
             for (int i = 0; i < labels.length; i++) {
                 Runnable task = tasks[i];
                 Button b = addRenderableWidget(Button.builder(Component.literal(labels[i]), button -> {
@@ -278,6 +279,7 @@ public final class ItemEditorScreen extends Screen implements EditorLayer {
     @Override public boolean keyPressed(KeyEvent event) {
         if (event.isEscape() || (minecraft.options.keyInventory.matches(event) && !search.isFocused())) { onClose(); return true; }
         if (!search.isFocused()) {
+            if (SimpleComponentScreen.undoShortcut(session, event)) return true;
             if (event.isCopy()) { copySelected(); return true; }
             if (event.isConfirmation()) { editSelected(); return true; }
             if (event.key() == 261 && session.editable) { deleteSelected(); return true; }

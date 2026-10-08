@@ -104,6 +104,12 @@ public final class SimpleComponentScreen extends Screen implements EditorLayer {
         }
         addRenderableWidget(Button.builder(Component.literal("上一页"), b -> { componentOffset -= pageSize; rebuildWidgets(); }).bounds(x+8,y+h-70,62,20).build()).active = componentOffset > 0;
         addRenderableWidget(Button.builder(Component.literal("下一页"), b -> { componentOffset += pageSize; rebuildWidgets(); }).bounds(x+76,y+h-70,62,20).build()).active = componentOffset + pageSize < list.size();
+        addRenderableWidget(Button.builder(Component.literal("收藏夹"), b -> minecraft.setScreen(new LibraryScreen(this, session, path())))
+                .bounds(x + w - 242, y + h - 70, 62, 20).tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("保存或载入常用物品（SNBT 文件）"))).build());
+        addRenderableWidget(Button.builder(Component.literal("撤销"), b -> session.undo()).bounds(x + w - 176, y + h - 70, 62, 20)
+                .tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("撤销上一次副本修改（Ctrl+Z）"))).build()).active = session.canUndo();
+        addRenderableWidget(Button.builder(Component.literal("重做"), b -> session.redo()).bounds(x + w - 110, y + h - 70, 62, 20)
+                .tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("重做已撤销的修改（Ctrl+Y / Ctrl+Shift+Z）"))).build()).active = session.canRedo();
         addRenderableWidget(Button.builder(Component.literal("高级模式"), b -> minecraft.setScreen(advancedParent == null ? new ItemEditorScreen(session, null, nestedPath) : advancedParent))
                 .bounds(x + 8, y + h - 28, 92, 20).build());
         if (session.editable) addRenderableWidget(Button.builder(Component.literal("同步"), b -> synchronize()).bounds(x + w - 208, y + h - 28, 62, 20).build());
@@ -157,7 +163,19 @@ public final class SimpleComponentScreen extends Screen implements EditorLayer {
     @Override public void tick() { if(revision != session.revision) rebuildWidgets(); }
     @Override public void onClose() { if (back != null) minecraft.setScreen(back); else session.close(); }
     @Override public boolean isPauseScreen() { return false; }
-    @Override public boolean keyPressed(KeyEvent key) { if (key.isEscape() || minecraft.options.keyInventory.matches(key)) { onClose(); return true; } return super.keyPressed(key); }
+    @Override public boolean keyPressed(KeyEvent key) {
+        if (key.isEscape() || minecraft.options.keyInventory.matches(key)) { onClose(); return true; }
+        if (undoShortcut(session, key)) return true;
+        return super.keyPressed(key);
+    }
+    /** Ctrl+Z undoes; Ctrl+Y or Ctrl+Shift+Z redoes. Shared by the simple and advanced editors. */
+    static boolean undoShortcut(EditSession session, KeyEvent key) {
+        if (!key.hasControlDown()) return false;
+        boolean shift = (key.modifiers() & org.lwjgl.glfw.GLFW.GLFW_MOD_SHIFT) != 0;
+        if (key.key() == org.lwjgl.glfw.GLFW.GLFW_KEY_Z && !shift) { session.undo(); return true; }
+        if (key.key() == org.lwjgl.glfw.GLFW.GLFW_KEY_Y || key.key() == org.lwjgl.glfw.GLFW.GLFW_KEY_Z) { session.redo(); return true; }
+        return false;
+    }
     @Override public void render(GuiGraphics g, int mx, int my, float delta) {
         ItemEditorScreen.panel(g, x, y, w, h); g.drawString(font, nested() ? "内部物品" : "简单模式", x + 8, y + 9, 0xFF303030, false);
         ItemStack preview = previewStack();
