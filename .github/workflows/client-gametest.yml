@@ -25,10 +25,6 @@ jobs:
         with:
           java-version: '21'
           distribution: 'microsoft'
-      - name: install virtual display
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q xvfb libgl1-mesa-dri
       - name: download SEE release
         if: matrix.see
         env:
@@ -36,17 +32,30 @@ jobs:
         run: |
           gh release download --repo sinkie114/see --pattern 'see-*.jar' --dir build/see-compat
           ls -l build/see-compat
+      # Loom already wraps the game in xvfb-run on CI. Software rendering gets
+      # two threads so world generation keeps CPU time.
       - name: run client game tests
+        shell: bash
         env:
           WITH_SEE: ${{ matrix.see }}
+          LP_NUM_THREADS: '2'
         run: |
           chmod +x ./gradlew
+          echo "CPU cores: $(nproc)"
           args=()
           if [ "$WITH_SEE" = "true" ]; then
             jar=$(ls "$PWD"/build/see-compat/see-*.jar | grep -v -- '-sources' | head -n 1)
             args+=("-PseeCompatJar=$jar")
           fi
-          xvfb-run -a -s "-screen 0 1920x1080x24" ./gradlew runClientGameTest "${args[@]}" --stacktrace
+          # Occasionally the integrated server stalls while preparing the spawn
+          # area on hosted runners, even for unchanged code. Only that exact
+          # failure is retried; every other failure fails the job at once.
+          for attempt in 1 2 3; do
+            if ./gradlew runClientGameTest "${args[@]}" --stacktrace 2>&1 | tee gametest.log; then exit 0; fi
+            grep -q "Timeout loading world" gametest.log || exit 1
+            echo "::warning::World loading timed out on attempt $attempt; retrying"
+          done
+          exit 1
       - name: upload screenshots and logs
         if: always()
         uses: actions/upload-artifact@v7
