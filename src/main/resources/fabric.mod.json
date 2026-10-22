@@ -12,10 +12,10 @@
   "environment": "client",
   "entrypoints": {
     "client": [
-      "com.sinkie114.client.NbtMakerClient"
+      "com.sinkie114.nbtmaker.NbtMakerClient"
     ],
     "modmenu": [
-      "com.sinkie114.client.compat.NbtMakerModMenu"
+      "com.sinkie114.nbtmaker.compat.NbtMakerModMenu"
     ]
   },
   "mixins": [
