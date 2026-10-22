@@ -185,6 +185,13 @@ public final class ItemEditorScreen extends Screen implements EditorLayer {
         else session.status = "请选择内部物品（含 id 的 Compound，或容器中带 item 的条目）";
     }
     private void copySelected() { copy(StackData.at(session.document, selected)); }
+    private void copyGiveCommand() {
+        try {
+            var result = ItemGiveCommand.of(rootPath.isEmpty() ? session.preview : nestedPreview, minecraft.level.registryAccess());
+            minecraft.keyboardHandler.setClipboard(result.command());
+            session.status = ItemGiveCommand.copiedMessage(result);
+        } catch (RuntimeException ex) { session.status = "无法生成命令：" + ex.getMessage(); }
+    }
     private void copy(Tag data) { if (data != null) { minecraft.keyboardHandler.setClipboard(data.toString()); session.status = "已复制 SNBT"; } }
     private void paste() {
         if (!session.editable || session.syncing) return;
@@ -221,9 +228,9 @@ public final class ItemEditorScreen extends Screen implements EditorLayer {
         @Override public EditSession session() { return session; }
         @Override protected void init() {
             sw = Math.min(320, width - 16); sh = Math.min(214, height - 16); sx = (width - sw) / 2; sy = (height - sh) / 2;
-            String[] labels = {"复制副本", "复制原物品", "粘贴 SNBT", "导入文件", "导出文件", "返回"};
+            String[] labels = {"复制副本", "复制原物品", "粘贴 SNBT", "导入文件", "导出文件", "复制 /give 命令", "返回"};
             Runnable[] tasks = {() -> copy(currentRoot()), () -> copy(StackData.at(session.observed, rootPath)), ItemEditorScreen.this::paste,
-                    ItemEditorScreen.this::importFile, ItemEditorScreen.this::exportFile, () -> {}};
+                    ItemEditorScreen.this::importFile, ItemEditorScreen.this::exportFile, ItemEditorScreen.this::copyGiveCommand, () -> {}};
             for (int i = 0; i < labels.length; i++) {
                 Runnable task = tasks[i];
                 Button b = addRenderableWidget(Button.builder(Component.literal(labels[i]), button -> {
@@ -281,7 +288,7 @@ public final class ItemEditorScreen extends Screen implements EditorLayer {
             if (event.isCopy()) { copySelected(); return true; }
             if (event.isConfirmation()) { editSelected(); return true; }
             if (event.key() == 261 && session.editable) { deleteSelected(); return true; }
-            if (event.isLeft() || event.isRight()) { horizontal = Math.max(0, horizontal + (event.isLeft() ? -30 : 30)); return true; }
+            if (event.isLeft() || event.isRight()) { scrollHorizontally(event.isLeft() ? -30 : 30); return true; }
         }
         return super.keyPressed(event);
     }
@@ -316,7 +323,8 @@ public final class ItemEditorScreen extends Screen implements EditorLayer {
     @Override public boolean mouseScrolled(double mx, double my, double hx, double vy) {
         if (my >= treeTop && my < treeBottom) {
             scroll = Math.max(0, Math.min(Math.max(0, rows.size() * ROW - (treeBottom - treeTop)), scroll - (int) (vy * ROW * 3)));
-            horizontal = Math.max(0, horizontal - (int) (hx * 24)); return true;
+            if (hx != 0) scrollHorizontally(-(int) (hx * 24));
+            return true;
         }
         return super.mouseScrolled(mx, my, hx, vy);
     }
@@ -345,8 +353,7 @@ public final class ItemEditorScreen extends Screen implements EditorLayer {
         for (int i = scroll / ROW; i < rows.size() && treeTop + i * ROW - scroll < treeBottom; i++) {
             Row row = rows.get(i); int ry = treeTop + i * ROW - scroll;
             if (row.path.equals(selected)) g.fill(x + 9, ry, x + w - 12, ry + ROW, 0xFF5C6786);
-            String label = (row.branch ? expanded.contains(row.path) ? "− " : "+ " : "  ") + row.name + "  [" + StackData.type(row.value) + "]  " + StackData.summary(row.value);
-            g.drawString(font, label, x + 12 + row.depth * 12 - horizontal, ry + 3, 0xFFFFFFFF, true);
+            g.drawString(font, label(row), x + 12 + row.depth * 12 - horizontal, ry + 3, 0xFFFFFFFF, true);
         }
         g.disableScissor();
         int contentHeight = treeBottom - treeTop;
@@ -365,6 +372,16 @@ public final class ItemEditorScreen extends Screen implements EditorLayer {
             try { g.setTooltipForNextFrame(font, preview, mx, my); } catch (RuntimeException ignored) { }
         }
         if (my >= y + h - 36 && my < y + h - 6) g.setTooltipForNextFrame(font, Component.literal(my < y + h - 23 ? warning : feedback), mx, my);
+    }
+    private String label(Row row) {
+        return (row.branch ? expanded.contains(row.path) ? "− " : "+ " : "  ") + row.name + "  [" + StackData.type(row.value) + "]  " + StackData.summary(row.value);
+    }
+    /** Stops at the end of the widest visible row instead of scrolling into empty space. */
+    private void scrollHorizontally(int delta) {
+        int widest = 0;
+        for (int i = scroll / ROW; i < rows.size() && treeTop + i * ROW - scroll < treeBottom; i++)
+            widest = Math.max(widest, rows.get(i).depth * 12 + font.width(label(rows.get(i))));
+        horizontal = Math.max(0, Math.min(horizontal + delta, widest - (w - 28)));
     }
     private record Row(List<Object> path, String name, Tag value, int depth, boolean branch) {}
 }

@@ -4,7 +4,6 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
@@ -106,6 +105,11 @@ public final class SimpleComponentScreen extends Screen implements EditorLayer {
         addRenderableWidget(Button.builder(Component.literal("下一页"), b -> { componentOffset += pageSize; rebuildWidgets(); }).bounds(x+76,y+h-70,62,20).build()).active = componentOffset + pageSize < list.size();
         addRenderableWidget(Button.builder(Component.literal("高级模式"), b -> minecraft.setScreen(advancedParent == null ? new ItemEditorScreen(session, null, nestedPath) : advancedParent))
                 .bounds(x + 8, y + h - 28, 92, 20).build());
+        // Only when the bottom row has room; the advanced SNBT menu always offers the same command.
+        if (w - 316 >= 60) addRenderableWidget(Button.builder(Component.literal("复制 /give"), b -> copyGiveCommand())
+                .bounds(x + 104, y + h - 28, Math.min(84, w - 316), 20)
+                .tooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("把当前物品复制成 /give 命令，只包含与默认值不同的组件"))).build())
+                .active = !previewStack().isEmpty();
         if (session.editable) addRenderableWidget(Button.builder(Component.literal("同步"), b -> synchronize()).bounds(x + w - 208, y + h - 28, 62, 20).build());
         addRenderableWidget(Button.builder(Component.literal(back != null ? "返回上层" : "关闭"), b -> onClose()).bounds(x + w - 75, y + h - 28, 67, 20).build());
     }
@@ -119,7 +123,14 @@ public final class SimpleComponentScreen extends Screen implements EditorLayer {
     }
     private static Tag parse(String text) { try { return TagParser.create(NbtOps.INSTANCE).parseFully(text); } catch (Exception ex) { throw new IllegalArgumentException(ex.getMessage()); } }
 
-    private void openBasic() { minecraft.setScreen(new BasicItemScreen(this)); }
+    void openBasic() { minecraft.setScreen(new BasicItemScreen(this)); }
+    private void copyGiveCommand() {
+        try {
+            var result = ItemGiveCommand.of(previewStack(), minecraft.level.registryAccess());
+            minecraft.keyboardHandler.setClipboard(result.command());
+            session.status = ItemGiveCommand.copiedMessage(result);
+        } catch (RuntimeException ex) { session.status = "无法生成命令：" + ex.getMessage(); }
+    }
     private void edit(String key, TemplateScreen.Template template) {
         if (key.equals(AttributeModifierScreen.KEY)) { minecraft.setScreen(new AttributeModifierScreen(this)); return; }
         if (ComponentForms.KEYS.contains(key)) { ComponentForms.open(this,key); return; }
@@ -180,20 +191,115 @@ public final class SimpleComponentScreen extends Screen implements EditorLayer {
         try { return StackData.decode(root(), minecraft.level.registryAccess()); } catch (RuntimeException ex) { return ItemStack.EMPTY; }
     }
 
-    private static final class InputScreen extends Screen implements EditorLayer {
-        private final SimpleComponentScreen parent; private final String initial; private final java.util.function.Consumer<String> commit; private EditBox input; private int x,y,w,h;
-        InputScreen(SimpleComponentScreen p, String title, String initial, java.util.function.Consumer<String> commit) { super(Component.literal(title)); this.parent=p; this.initial=initial; this.commit=commit; }
-        public EditSession session(){return parent.session;}
-        protected void init(){w=Math.min(500,width-16);h=150;x=(width-w)/2;y=(height-h)/2; input=addRenderableWidget(new EditBox(font,x+8,y+35,w-16,20,Component.literal("值")));input.setValue(initial);addRenderableWidget(Button.builder(Component.literal("确定"),b->{try{commit.accept(input.getValue());minecraft.setScreen(parent);}catch(Exception e){input.setHint(Component.literal("输入无效："+e.getMessage()));}}).bounds(x+8,y+h-28,65,20).build());addRenderableWidget(Button.builder(Component.literal("取消"),b->minecraft.setScreen(parent)).bounds(x+w-73,y+h-28,65,20).build());setInitialFocus(input);}
-        public void render(GuiGraphics g,int mx,int my,float d){ItemEditorScreen.panel(g,x,y,w,h);g.drawString(font,title,x+8,y+12,0xFF303030,false);super.render(g,mx,my,d);}
-        public boolean charTyped(CharacterEvent e){return super.charTyped(e);} public boolean keyPressed(KeyEvent e){if(e.isEscape()){minecraft.setScreen(parent);return true;}return super.keyPressed(e);}public boolean isPauseScreen(){return false;}public void onClose(){minecraft.setScreen(parent);}
+    /** Error text for a dialog; an EditBox hint is only drawn while the box is empty, so it cannot carry errors. */
+    private static String errorText(Exception ex) {
+        return ex.getMessage() == null || ex.getMessage().isBlank() ? "输入无效" : ex.getMessage();
     }
 
-    private static final class BasicItemScreen extends Screen implements EditorLayer {
-        private final SimpleComponentScreen parent; private EditBox id,count; private int x,y,w,h;
-        BasicItemScreen(SimpleComponentScreen p){super(Component.literal("物品基础"));parent=p;} public EditSession session(){return parent.session;}
-        protected void init(){w=420;h=180;x=(width-w)/2;y=(height-h)/2;id=addRenderableWidget(new EditBox(font,x+8,y+35,w-16,20,Component.literal("物品 ID")));id.setValue(parent.root().getStringOr("id","minecraft:stone"));count=addRenderableWidget(new EditBox(font,x+8,y+78,w-16,20,Component.literal("数量")));count.setValue(Integer.toString(parent.root().getIntOr("count",1)));addRenderableWidget(Button.builder(Component.literal("确定"),b->{try{CompoundTag r=parent.root().copy();r.putString("id",id.getValue());r.putInt("count",Integer.parseInt(count.getValue()));parent.setRoot(r);minecraft.setScreen(parent);}catch(Exception e){count.setHint(Component.literal("数量必须是整数"));}}).bounds(x+8,y+h-28,65,20).build());addRenderableWidget(Button.builder(Component.literal("取消"),b->minecraft.setScreen(parent)).bounds(x+w-73,y+h-28,65,20).build());}
-        public void render(GuiGraphics g,int mx,int my,float d){ItemEditorScreen.panel(g,x,y,w,h);g.drawString(font,title,x+8,y+12,0xFF303030,false);g.drawString(font,"直接填写物品 ID 和数量，不需要 SNBT。",x+8,y+22,0xFF555555,false);super.render(g,mx,my,d);}public boolean isPauseScreen(){return false;}public void onClose(){minecraft.setScreen(parent);}public boolean keyPressed(KeyEvent e){if(e.isEscape()){onClose();return true;}return super.keyPressed(e);}
+    private static final class InputScreen extends Screen implements EditorLayer {
+        private final SimpleComponentScreen parent;
+        private final java.util.function.Consumer<String> commit;
+        private String value, error = "";
+        private int x, y, w, h;
+        InputScreen(SimpleComponentScreen p, String title, String initial, java.util.function.Consumer<String> commit) {
+            super(Component.literal(title)); this.parent = p; this.value = initial; this.commit = commit;
+        }
+        @Override public EditSession session() { return parent.session; }
+        @Override protected void init() {
+            w = Math.min(500, width - 16); h = 150; x = (width - w) / 2; y = (height - h) / 2;
+            EditBox input = addRenderableWidget(new EditBox(font, x + 8, y + 35, w - 16, 20, Component.literal("值")));
+            input.setMaxLength(32767); input.setValue(value);
+            input.setResponder(text -> { value = text; error = ""; });
+            addRenderableWidget(Button.builder(Component.literal("确定"), b -> submit()).bounds(x + 8, y + h - 28, 65, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("取消"), b -> onClose()).bounds(x + w - 73, y + h - 28, 65, 20).build());
+            setInitialFocus(input);
+        }
+        private void submit() {
+            try { commit.accept(value); minecraft.setScreen(parent); }
+            catch (Exception ex) { error = "输入无效：" + errorText(ex); }
+        }
+        @Override public void render(GuiGraphics g, int mx, int my, float d) {
+            ItemEditorScreen.panel(g, x, y, w, h); g.drawString(font, title, x + 8, y + 12, 0xFF303030, false);
+            if (!error.isEmpty()) g.drawString(font, font.plainSubstrByWidth(error, w - 16), x + 8, y + 64, 0xFFAA2222, false);
+            super.render(g, mx, my, d);
+        }
+        @Override public boolean keyPressed(KeyEvent e) {
+            if (e.isEscape()) { onClose(); return true; }
+            if (e.isConfirmation() && getFocused() instanceof EditBox) { submit(); return true; }
+            return super.keyPressed(e);
+        }
+        @Override public boolean isPauseScreen() { return false; }
+        @Override public void onClose() { minecraft.setScreen(parent); }
+    }
+
+    /** Item ID and count. Values live in fields so returning from the item picker keeps them. */
+    static final class BasicItemScreen extends Screen implements EditorLayer {
+        private final SimpleComponentScreen parent;
+        private String idText, countText, error = "";
+        private int x, y, w, h;
+        BasicItemScreen(SimpleComponentScreen p) {
+            super(Component.literal("物品基础")); parent = p;
+            idText = p.root().getStringOr("id", "");
+            countText = Integer.toString(p.root().getIntOr("count", 1));
+        }
+        @Override public EditSession session() { return parent.session; }
+        @Override protected void init() {
+            w = Math.min(420, width - 16); h = 180; x = (width - w) / 2; y = (height - h) / 2;
+            EditBox id = addRenderableWidget(new EditBox(font, x + 8, y + 34, w - 92, 20, Component.literal("物品 ID")));
+            // EditBox keeps only 32 characters by default, which cuts long IDs such as minecraft:light_blue_glazed_terracotta.
+            id.setMaxLength(256); id.setValue(idText); id.setHint(Component.literal("例如 minecraft:diamond_sword"));
+            id.setResponder(text -> { idText = text; error = ""; });
+            Button pick = addRenderableWidget(Button.builder(Component.literal("选择物品"), b -> minecraft.setScreen(new OptionPickerScreen(this, "选择物品",
+                    RegistryOptions.items(), chosen -> { idText = chosen; error = ""; minecraft.setScreen(this); }))).bounds(x + w - 80, y + 34, 72, 20).build());
+            pick.active = parent.session.editable && !parent.session.syncing;
+            EditBox count = addRenderableWidget(new EditBox(font, x + 8, y + 84, w - 16, 20, Component.literal("数量")));
+            count.setMaxLength(16); count.setValue(countText);
+            count.setResponder(text -> { countText = text; error = ""; });
+            addRenderableWidget(Button.builder(Component.literal("确定"), b -> submit()).bounds(x + 8, y + h - 28, 65, 20).build())
+                    .active = parent.session.editable && !parent.session.syncing;
+            addRenderableWidget(Button.builder(Component.literal("取消"), b -> onClose()).bounds(x + w - 73, y + h - 28, 65, 20).build());
+            setInitialFocus(id);
+        }
+        private void submit() {
+            try {
+                String item = itemId(idText);
+                int amount;
+                try { amount = Integer.parseInt(countText.trim()); }
+                catch (NumberFormatException ex) { throw new IllegalArgumentException("数量必须是整数"); }
+                CompoundTag r = parent.root().copy(); r.putString("id", item); r.putInt("count", amount);
+                parent.setRoot(r); minecraft.setScreen(parent);
+            } catch (Exception ex) { error = errorText(ex); }
+        }
+        /** Validates and normalizes an item ID, e.g. "diamond" becomes "minecraft:diamond". */
+        static String itemId(String text) {
+            if (text.isBlank()) throw new IllegalArgumentException("请填写物品 ID，或点击“选择物品”");
+            var id = net.minecraft.resources.Identifier.tryParse(text.trim());
+            if (id == null) throw new IllegalArgumentException("物品 ID 格式不正确，例如 minecraft:diamond_sword");
+            if (id.equals(net.minecraft.resources.Identifier.withDefaultNamespace("air")))
+                throw new IllegalArgumentException("air 表示空物品，请选择其他物品");
+            if (!BuiltInRegistries.ITEM.containsKey(id)) throw new IllegalArgumentException("未注册的物品：" + id);
+            return id.toString();
+        }
+        @Override public void render(GuiGraphics g, int mx, int my, float d) {
+            ItemEditorScreen.panel(g, x, y, w, h);
+            g.drawString(font, title, x + 8, y + 8, 0xFF303030, false);
+            g.drawString(font, "直接填写物品 ID 和数量，不需要 SNBT。", x + 8, y + 20, 0xFF555555, false);
+            String name;
+            try { name = "物品：" + BuiltInRegistries.ITEM.get(net.minecraft.resources.Identifier.parse(itemId(idText))).orElseThrow().value().getName().getString(); }
+            catch (RuntimeException ex) { name = idText.isBlank() ? "" : "无法识别：" + errorText(ex); }
+            g.drawString(font, font.plainSubstrByWidth(name, w - 16), x + 8, y + 58, 0xFF555555, false);
+            g.drawString(font, "数量（小于等于 0 表示空物品）", x + 8, y + 72, 0xFF555555, false);
+            if (!error.isEmpty()) g.drawString(font, font.plainSubstrByWidth(error, w - 16), x + 8, y + h - 44, 0xFFAA2222, false);
+            super.render(g, mx, my, d);
+        }
+        String error() { return error; }
+        @Override public boolean isPauseScreen() { return false; }
+        @Override public void onClose() { minecraft.setScreen(parent); }
+        @Override public boolean keyPressed(KeyEvent e) {
+            if (e.isEscape()) { onClose(); return true; }
+            if (e.isConfirmation() && getFocused() instanceof EditBox) { submit(); return true; }
+            return super.keyPressed(e);
+        }
     }
 
 }

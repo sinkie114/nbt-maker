@@ -92,9 +92,16 @@ final class ItemGridScreen extends Screen implements EditorLayer {
         return entry instanceof CompoundTag c ? c : new CompoundTag();
     }
 
+    /** Decoded slots for the current copy; render runs every frame, decoding only after an edit. */
+    private final Map<Integer, ItemStack> decoded = new HashMap<>();
+    private int decodedRevision = -1;
+
     private ItemStack stack(int listIndex) {
-        try { return StackData.decode(itemTag(listIndex), minecraft.level.registryAccess()); }
-        catch (RuntimeException ex) { return new ItemStack(Items.BARRIER); }
+        if (decodedRevision != session().revision) { decoded.clear(); decodedRevision = session().revision; }
+        return decoded.computeIfAbsent(listIndex, index -> {
+            try { return StackData.decode(itemTag(index), minecraft.level.registryAccess()); }
+            catch (RuntimeException ex) { return new ItemStack(Items.BARRIER); }
+        });
     }
 
     private void write(ListTag next) {

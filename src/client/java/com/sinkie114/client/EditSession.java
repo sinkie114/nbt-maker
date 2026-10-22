@@ -55,6 +55,9 @@ public final class EditSession {
 
     public static EditSession open(Minecraft c, AbstractContainerScreen<?> source, Slot slot) { return new EditSession(c, source, slot); }
 
+    /** Whether sync has a real slot to write: SEE, the player's inventory, or a non-creative menu slot. */
+    public boolean canWriteBack() { return editable && (seeSource != null || inventoryIndex >= 0 || menuIndex >= 0); }
+
     public void edit(CompoundTag next) {
         if (!editable || syncing) return;
         document = next.copy(); revision++; status = ""; refresh();
