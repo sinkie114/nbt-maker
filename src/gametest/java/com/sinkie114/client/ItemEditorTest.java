@@ -57,6 +57,7 @@ public final class ItemEditorTest implements FabricClientGameTest {
             EnchantmentEditorTest.exercise(context, server);
             DisplayContainerTest.exercise(context, server);
             CommandBasicsTest.exercise(context, server);
+            HistoryLibraryTest.exercise(context, server);
             click(context, "高级模式");
             context.waitForScreen(ItemEditorScreen.class);
             context.runOnClient(c -> {
