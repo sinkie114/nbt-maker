@@ -227,10 +227,11 @@ public final class ItemEditorScreen extends Screen implements EditorLayer {
         SnbtScreen() { super(Component.literal("SNBT 导入与导出")); }
         @Override public EditSession session() { return session; }
         @Override protected void init() {
-            sw = Math.min(320, width - 16); sh = Math.min(214, height - 16); sx = (width - sw) / 2; sy = (height - sh) / 2;
-            String[] labels = {"复制副本", "复制原物品", "粘贴 SNBT", "导入文件", "导出文件", "复制 /give 命令", "返回"};
+            String[] labels = {"复制副本", "复制原物品", "粘贴 SNBT", "导入文件", "导出文件", "复制 /give 命令", "收藏夹", "返回"};
+            sw = Math.min(320, width - 16); sh = Math.min(36 + labels.length * 26, height - 16); sx = (width - sw) / 2; sy = (height - sh) / 2;
             Runnable[] tasks = {() -> copy(currentRoot()), () -> copy(StackData.at(session.observed, rootPath)), ItemEditorScreen.this::paste,
-                    ItemEditorScreen.this::importFile, ItemEditorScreen.this::exportFile, ItemEditorScreen.this::copyGiveCommand, () -> {}};
+                    ItemEditorScreen.this::importFile, ItemEditorScreen.this::exportFile, ItemEditorScreen.this::copyGiveCommand,
+                    () -> minecraft.setScreen(new LibraryScreen(ItemEditorScreen.this, session, rootPath)), () -> {}};
             for (int i = 0; i < labels.length; i++) {
                 Runnable task = tasks[i];
                 Button b = addRenderableWidget(Button.builder(Component.literal(labels[i]), button -> {
@@ -285,6 +286,7 @@ public final class ItemEditorScreen extends Screen implements EditorLayer {
     @Override public boolean keyPressed(KeyEvent event) {
         if (event.isEscape() || (minecraft.options.keyInventory.matches(event) && !search.isFocused())) { onClose(); return true; }
         if (!search.isFocused()) {
+            if (SimpleComponentScreen.undoShortcut(session, event)) return true;
             if (event.isCopy()) { copySelected(); return true; }
             if (event.isConfirmation()) { editSelected(); return true; }
             if (event.key() == 261 && session.editable) { deleteSelected(); return true; }
