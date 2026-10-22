@@ -60,13 +60,14 @@ public final class SeeIntegrationTest implements FabricClientGameTest {
             context.takeScreenshot("see-nbt-equipment");
             context.getInput().pressKey(GLFW.GLFW_KEY_ESCAPE); context.waitForScreen(EntityDebugScreen.class);
             context.runOnClient(c -> check(find(((EntityDebugScreen)c.screen).getMenu(), "equipment.mainhand").getItem().getHoverName().getString().equals("Linked sword"), "Returning to SEE keeps the same menu and updated item"));
-            // Player slots in SEE's information tabs must also map to the real inventory.
-            click(context, "概览"); openItem(context, "player.1");
+            // Player slots shown under SEE's entity slots must also map to the real inventory.
+            openItem(context, "player.1");
             context.runOnClient(c -> { var session = editor(c).session(); var doc = session.document.copy(); doc.putInt("count", 9); session.edit(doc); });
             sync(context);
             server.runOnServer(s -> check(s.getPlayerList().getPlayers().getFirst().getInventory().getItem(1).getCount() == 9, "SEE player inventory index is preserved"));
             closeBoth(context);
             testReadOnly(context, server, entityId, id);
+            testEditorTab(context, server, entityId, id);
             testContainer(context, server);
             testDroppedItem(context, server);
         }
@@ -108,6 +109,34 @@ public final class SeeIntegrationTest implements FabricClientGameTest {
         context.runOnClient(c -> check(editor(c).session().observed.getStringOr("id", "").equals("minecraft:golden_sword"), "Read-only inspection remains live while SEE is suspended"));
         context.takeScreenshot("see-nbt-read-only");
         closeBoth(context);
+    }
+
+    /** SEE 1.0.9+: F8 opens SEE's entity editor; its 物品栏 tab is the container NBT Maker edits from. */
+    private void testEditorTab(ClientGameTestContext context, TestServerContext server, int entityId, UUID id) {
+        context.runOnClient(c -> EntityNbtSession.open(c, c.level.getEntity(entityId)));
+        context.waitFor(c -> c.screen instanceof EntityNbtLayer && !(c.screen instanceof EntityDebugScreen));
+        click(context, "物品栏");
+        context.waitFor(c -> c.screen instanceof EntityDebugScreen screen && screen.getMenu().ready);
+        openItem(context, "equipment.mainhand");
+        context.runOnClient(c -> {
+            var session = editor(c).session(); var doc = session.document.copy();
+            doc.getCompoundOrEmpty("components").putString("minecraft:custom_name", "From editor tab"); session.edit(doc);
+        });
+        sync(context); context.waitTicks(4);
+        server.runOnServer(s -> check(((Villager)s.overworld().getEntity(id)).getMainHandItem().getHoverName().getString().equals("From editor tab"),
+                "Sync from SEE's editor inventory tab reaches the entity"));
+        context.getInput().pressKey(GLFW.GLFW_KEY_ESCAPE); context.waitForScreen(EntityDebugScreen.class);
+        context.runOnClient(c -> check(EntityNbtSession.active != null && EntityNbtSession.active == ((EntityDebugScreen)c.screen).session(),
+                "Returning from NBT Maker resumes SEE's editor session"));
+        // A change made by NBT Maker must show up in SEE's editor copy once it polls again.
+        context.waitFor(c -> EntityNbtSession.active != null && EntityNbtSession.active.observed.toString().contains("From editor tab"));
+        context.getInput().pressKey(GLFW.GLFW_KEY_ESCAPE);
+        context.waitFor(c -> c.screen instanceof EntityNbtLayer && !(c.screen instanceof EntityDebugScreen));
+        click(context, "关闭"); context.waitForScreen(null); context.waitTicks(3);
+        server.runOnServer(s -> {
+            var player = s.getPlayerList().getPlayers().getFirst();
+            check(player.containerMenu == player.inventoryMenu, "Leaving SEE's editor closes its container");
+        });
     }
 
     private void testContainer(ClientGameTestContext context, TestServerContext server) {
