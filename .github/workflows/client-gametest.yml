@@ -1,0 +1,59 @@
+# Runs the client game tests in src/gametest inside a real (virtual-display)
+# Minecraft client, so every push and pull request is checked in game, not
+# only compiled. The "with SEE" run downloads SEE's latest release and adds
+# the linked-editing suite in src/seeGametest.
+
+name: client gametest
+on: [pull_request, push]
+
+jobs:
+  client-gametest:
+    name: client gametest (${{ matrix.see && 'with SEE' || 'standalone' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        see: [false, true]
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+      - name: validate gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+      - name: setup jdk
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'microsoft'
+      - name: install virtual display
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb libgl1-mesa-dri
+      - name: download SEE release
+        if: matrix.see
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo sinkie114/see --pattern 'see-*.jar' --dir build/see-compat
+          ls -l build/see-compat
+      - name: run client game tests
+        env:
+          WITH_SEE: ${{ matrix.see }}
+        run: |
+          chmod +x ./gradlew
+          args=()
+          if [ "$WITH_SEE" = "true" ]; then
+            jar=$(ls "$PWD"/build/see-compat/see-*.jar | grep -v -- '-sources' | head -n 1)
+            args+=("-PseeCompatJar=$jar")
+          fi
+          xvfb-run -a -s "-screen 0 1920x1080x24" ./gradlew runClientGameTest "${args[@]}" --stacktrace
+      - name: upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: client-gametest-${{ matrix.see && 'with-see' || 'standalone' }}
+          path: |
+            build/run/clientGameTest/screenshots/
+            build/run/clientGameTest/logs/
+            build/run/clientGameTest/crash-reports/
+          if-no-files-found: ignore
