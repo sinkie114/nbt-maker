@@ -50,7 +50,7 @@ final class MultiPickerScreen extends Screen implements EditorLayer {
         w = Math.min(640, width - 12); h = Math.min(430, height - 12); x = (width - w) / 2; y = (height - h) / 2;
         pageSize = Math.max(1, (h - 100) / 24); results.clear();
         EditBox search = addRenderableWidget(new EditBox(font, x + 8, y + 29, w - 16, 20, Component.literal("搜索")));
-        search.setHint(Component.literal("搜索名称或 ID")); search.setValue(query);
+        search.setMaxLength(256); search.setHint(Component.literal("搜索名称或 ID")); search.setValue(query);
         search.setResponder(v -> { query = v; offset = 0; refresh(); });
         previous = addRenderableWidget(Button.builder(Component.literal("上一页"), b -> { offset -= pageSize; refresh(); }).bounds(x + 8, y + h - 28, 62, 20).build());
         next = addRenderableWidget(Button.builder(Component.literal("下一页"), b -> { offset += pageSize; refresh(); }).bounds(x + 76, y + h - 28, 62, 20).build());
